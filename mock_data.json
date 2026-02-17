@@ -1,0 +1,54 @@
+{
+  "now": 1600000000,
+  "messages": 12345,
+  "aircraft": [
+    {
+      "hex": "A12345",
+      "flight": "UAL123  ",
+      "alt_baro": 35000,
+      "gs": 450,
+      "track": 90,
+      "lat": 35.0,
+      "lon": -98.0,
+      "r_dst": 10.5,
+      "t": "B738",
+      "dbFlags": 0
+    },
+    {
+      "hex": "B67890",
+      "flight": "MILITARY",
+      "alt_baro": 15000,
+      "gs": 500,
+      "track": 180,
+      "lat": 35.1,
+      "lon": -98.1,
+      "r_dst": 2.5,
+      "t": "F16",
+      "dbFlags": 1
+    },
+    {
+      "hex": "C11223",
+      "flight": "N123GA  ",
+      "alt_baro": 2500,
+      "gs": 120,
+      "track": 270,
+      "lat": 35.2,
+      "lon": -98.2,
+      "r_dst": 3.8,
+      "t": "C172",
+      "dbFlags": 0
+    },
+    {
+      "hex": "D45678",
+      "flight": "OU123   ",
+      "alt_baro": 12000,
+      "gs": 300,
+      "track": 45,
+      "lat": 35.3,
+      "lon": -98.3,
+      "r_dst": 25.0,
+      "t": "B350",
+      "dbFlags": 0
+    }
+  ]
+}

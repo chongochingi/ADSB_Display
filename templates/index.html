@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ADSB Display</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>Air Traffic Monitor</h1>
+            <div id="stats" class="stats-bar">
+                <div class="stat-item">
+                    <span class="label">Total Aircraft</span>
+                    <span id="total-count" class="value">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="label">All Time Seen</span>
+                    <span id="seen-count" class="value">0</span>
+                </div>
+                <div class="stat-item" onclick="window.location.href='/unique_types'"
+                    style="cursor: pointer; transition: transform 0.2s;"
+                    onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+                    <span class="label">Unique Types</span>
+                    <span id="type-count" class="value">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="label">Closest</span>
+                    <span id="closest-dist" class="value">--</span>
+                    <div class="stat-detail" id="closest-type">--</div>
+                </div>
+                <div class="stat-item">
+                    <span class="label">Furthest</span>
+                    <span id="furthest-dist" class="value">--</span>
+                    <div class="stat-detail" id="furthest-type">--</div>
+                </div>
+                <div class="stat-item">
+                    <span class="label">Highest Alt</span>
+                    <span id="highest-alt" class="value">--</span>
+                    <div class="stat-detail" id="highest-type">--</div>
+                </div>
+                <div class="stat-item">
+                    <span class="label">Lowest Alt</span>
+                    <span id="lowest-alt" class="value">--</span>
+                    <div class="stat-detail" id="lowest-type">--</div>
+                </div>
+            </div>
+        </header>
+
+        <div id="close-proximity-container" class="hidden">
+            <div class="alert-box">
+                <div class="alert-header">⚠️ CLOSE PROXIMITY ALERT ⚠️</div>
+                <div id="alert-content">
+                    <!-- Dynamic Content -->
+                </div>
+            </div>
+        </div>
+
+        <div id="close-proximity-container" class="hidden">
+            <div class="alert-box">
+                <div class="alert-header">⚠️ CLOSE PROXIMITY ALERT ⚠️</div>
+                <div id="alert-content">
+                    <!-- Dynamic Content -->
+                </div>
+            </div>
+        </div>
+
+        <main id="aircraft-list" class="grid-view">
+            <!-- Aircraft cards will be injected here -->
+        </main>
+    </div>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+
+</html>
