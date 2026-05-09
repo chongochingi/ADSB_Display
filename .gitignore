@@ -1,1 +1,21 @@
-/home/semmons/Projects/ADSB_Display/aircraft_db.jsonaircraft_db.json
+# API Keys / Secrets
+.env
+
+# Local Databases & Datasets
+*.db
+*.sqlite
+aircraft_db.json
+routes.json
+airports.json
+Airline_dataset.csv
+
+# Logs
+*.log
+
+# Environment
+venv/
+__pycache__/
+*.pyc
+
+# OS Files
+.DS_Store

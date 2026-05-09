@@ -166,11 +166,26 @@ function renderAircraft() {
         const isMilitary = (ac.dbFlags & 1) || (ac.mil === true);
         const isNewType = ac.is_new_type === true;
         const isOU = flight.startsWith('OU');
+        
+        const route_from = ac.route_from || '--';
+        const route_to = ac.route_to || '--';
+        const route_from_name = ac.route_from_name || '';
+        const route_to_name = ac.route_to_name || '';
+        const routeDisplay = (ac.route_from && ac.route_to) ? `✈ ${ac.route_from} → ${ac.route_to}` : '';
 
         // Prepare Wiki URL
         const wikiQuery = ac.full_desc || ac.desc || ac.t || '';
         const wikiUrl = `https://en.wikipedia.org/w/index.php?search=${encodeURIComponent(wikiQuery)}`;
 
+        // Prepare Map URLs
+        const fromMapQuery = route_from_name ? `${route_from_name}` : `${route_from} Airport`;
+        const fromMapUrl = route_from !== '--' ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fromMapQuery)}` : '#';
+
+        const toMapQuery = route_to_name ? `${route_to_name}` : `${route_to} Airport`;
+        const toMapUrl = route_to !== '--' ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(toMapQuery)}` : '#';
+
+        // Prepare Map URL
+        const mapUrl = `http://adsbexchange.local/tar1090/?icao=${ac.hex.toLowerCase()}`;
 
         if (!card) {
             // Create new card
@@ -183,10 +198,10 @@ function renderAircraft() {
 
             card.className = classes.join(' ');
 
-            // Add click handler for Wikipedia
+            // Add click handler for Map
             card.onclick = (e) => {
                 if (e.target.tagName !== 'BUTTON') {
-                    window.open(wikiUrl, '_blank');
+                    window.open(mapUrl, '_blank');
                 }
             };
 
@@ -194,10 +209,19 @@ function renderAircraft() {
                 <div class="card-header">
                     <div>
                         <span class="flight-id">${flight}</span> ${isNewType ? '<span class="new-type-star" title="First time seeing this type!">⭐</span>' : ''}
-                        <div class="desc">${desc}</div>
+                        <div class="route-display" data-field="route">${routeDisplay}</div>
+                        <div class="desc clickable-text" title="Search Wikipedia for ${wikiQuery}">${desc}</div>
                     </div>
                 </div>
                 <div class="card-body">
+                    <div class="data-row">
+                        <span class="data-label">DEPARTURE</span>
+                        <span class="data-val ${route_from !== '--' ? 'clickable-text' : ''}" data-field="dep" title="${route_from_name}">${route_from}</span>
+                    </div>
+                    <div class="data-row">
+                        <span class="data-label">DESTINATION</span>
+                        <span class="data-val ${route_to !== '--' ? 'clickable-text' : ''}" data-field="dest" title="${route_to_name}">${route_to}</span>
+                    </div>
                     <div class="data-row">
                         <span class="data-label">ALTITUDE</span>
                         <span class="data-val" data-field="alt">${alt} ft</span>
@@ -216,6 +240,22 @@ function renderAircraft() {
                     </div>
                 </div>
             `;
+            // Attach specific click handlers
+            const newDescEl = card.querySelector('.desc');
+            if (newDescEl) {
+                newDescEl.onclick = (e) => { e.stopPropagation(); window.open(wikiUrl, '_blank'); };
+            }
+            
+            const newDepEl = card.querySelector('[data-field="dep"]');
+            if (newDepEl && route_from !== '--') {
+                newDepEl.onclick = (e) => { e.stopPropagation(); window.open(fromMapUrl, '_blank'); };
+            }
+            
+            const newDestEl = card.querySelector('[data-field="dest"]');
+            if (newDestEl && route_to !== '--') {
+                newDestEl.onclick = (e) => { e.stopPropagation(); window.open(toMapUrl, '_blank'); };
+            }
+
             // Append new cards to the end (or correct position)
             // If we are at the end of the list, append.
             if (index >= aircraftList.children.length) {
@@ -227,6 +267,42 @@ function renderAircraft() {
             // Update existing card
             const flightEl = card.querySelector('.flight-id');
             if (flightEl) flightEl.textContent = flight;
+
+            const routeEl = card.querySelector('[data-field="route"]');
+            if (routeEl) routeEl.textContent = routeDisplay;
+            
+            const descEl = card.querySelector('.desc');
+            if (descEl) {
+                descEl.textContent = desc;
+                descEl.title = `Search Wikipedia for ${wikiQuery}`;
+                descEl.onclick = (e) => { e.stopPropagation(); window.open(wikiUrl, '_blank'); };
+            }
+
+            const depEl = card.querySelector('[data-field="dep"]');
+            if (depEl) {
+                depEl.textContent = route_from;
+                if (route_from_name) depEl.title = route_from_name;
+                if (route_from !== '--') {
+                    depEl.classList.add('clickable-text');
+                    depEl.onclick = (e) => { e.stopPropagation(); window.open(fromMapUrl, '_blank'); };
+                } else {
+                    depEl.classList.remove('clickable-text');
+                    depEl.onclick = null;
+                }
+            }
+
+            const destEl = card.querySelector('[data-field="dest"]');
+            if (destEl) {
+                destEl.textContent = route_to;
+                if (route_to_name) destEl.title = route_to_name;
+                if (route_to !== '--') {
+                    destEl.classList.add('clickable-text');
+                    destEl.onclick = (e) => { e.stopPropagation(); window.open(toMapUrl, '_blank'); };
+                } else {
+                    destEl.classList.remove('clickable-text');
+                    destEl.onclick = null;
+                }
+            }
 
             const altEl = card.querySelector('[data-field="alt"]');
             if (altEl) altEl.textContent = `${alt} ft`;
@@ -258,10 +334,10 @@ function renderAircraft() {
                 }
             }
 
-            // Update onclick handler with potentially new data
+            // Update onclick handler with map URL
             card.onclick = (e) => {
                 if (e.target.tagName !== 'BUTTON') {
-                    window.open(wikiUrl, '_blank');
+                    window.open(mapUrl, '_blank');
                 }
             };
         }
@@ -319,8 +395,38 @@ setInterval(() => {
     }
 }, 3000);
 
+// Military List Logic
+const milListContainer = document.getElementById('military-list-container');
+const milListContent = document.getElementById('military-list-content');
+
+function updateMilitaryListDisplay() {
+    const militaryAircraft = aircraftData.filter(ac => (ac.dbFlags & 1) || (ac.mil === true));
+    
+    if (militaryAircraft.length === 0) {
+        if (milListContainer) milListContainer.classList.add('hidden');
+        return;
+    }
+
+    if (milListContainer) milListContainer.classList.remove('hidden');
+
+    const milTypes = new Set();
+    militaryAircraft.forEach(ac => {
+        const typeStr = ac.desc || ac.t || ac.category || 'Unknown Military';
+        milTypes.add(typeStr);
+    });
+
+    if (milListContent) {
+        const tagsHtml = Array.from(milTypes).map(t => {
+            const wikiUrl = `https://en.wikipedia.org/w/index.php?search=${encodeURIComponent(t)}`;
+            return `<span class="military-tag" title="Search Wikipedia for ${t}" onclick="window.open('${wikiUrl}', '_blank')">${t}</span>`;
+        }).join('');
+        milListContent.innerHTML = tagsHtml;
+    }
+}
+
 // Start polling
 fetchData();
-setInterval(fetchData, 1000);
+setInterval(fetchData, 5000);
 // Update display on fetch as well to catch new data/removals
-setInterval(updateCloseProximityDisplay, 1000);
+setInterval(updateCloseProximityDisplay, 5000);
+setInterval(updateMilitaryListDisplay, 5000);

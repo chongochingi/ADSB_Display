@@ -30,4 +30,4 @@ def api_data():
 
 if __name__ == '__main__':
     # Running on port 5001 to avoid conflict with Pi-hole on 80/admin or other services
-    app.run(debug=True, host='0.0.0.0', port=5001)
+    app.run(debug=True, host='0.0.0.0', port=5001, ssl_context='adhoc')

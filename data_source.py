@@ -3,6 +3,17 @@ import json
 import os
 import sqlite3
 import time
+import threading
+import queue
+
+# Load .env file automatically
+if os.path.exists('.env'):
+    with open('.env', 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#') and '=' in line:
+                k, v = line.split('=', 1)
+                os.environ[k.strip()] = v.strip().strip('"\'')
 
 # 1. Load Aircraft Database into Memory
 AIRCRAFT_DB = {}
@@ -25,6 +36,119 @@ if os.path.exists(DB_FILE):
         print(f"Error loading database: {e}")
 else:
     print("Warning: aircraft_db.json not found.")
+
+# 1.5 Load Routes Database
+ROUTES_DB = {}
+ROUTES_FILE = "routes.json"
+
+if os.path.exists(ROUTES_FILE):
+    print("Loading routes database...")
+    try:
+        with open(ROUTES_FILE, 'r') as f:
+            # We enforce uppercase keys to match against uppercase callsigns
+            raw_routes = json.load(f)
+            ROUTES_DB = {k.upper(): v for k, v in raw_routes.items()}
+        print(f"Loaded {len(ROUTES_DB)} routes.")
+    except Exception as e:
+        print(f"Error loading routes database: {e}")
+
+# 1.5.5 Load Airports Database
+AIRPORTS_DB = {}
+AIRPORTS_FILE = "airports.json"
+
+if os.path.exists(AIRPORTS_FILE):
+    print("Loading airports database...")
+    try:
+        with open(AIRPORTS_FILE, 'r') as f:
+            AIRPORTS_DB = json.load(f)
+        print(f"Loaded {len(AIRPORTS_DB)} airports.")
+    except Exception as e:
+        print(f"Error loading airports database: {e}")
+
+# 1.6 FlightAware AeroAPI Integration
+flightaware_queue = queue.Queue()
+missing_routes_in_progress = set()
+request_times = []
+
+def fetch_flightaware_route_worker():
+    global request_times
+    api_key = os.environ.get('FLIGHTAWARE_API_KEY')
+    if not api_key:
+        return
+
+    print("FlightAware AeroAPI worker started. Rate limit set to 10/min.")
+    while True:
+        try:
+            callsign = flightaware_queue.get()
+            if not callsign:
+                continue
+                
+            # Enforce 10 requests per rolling 60 seconds
+            now = time.time()
+            request_times = [t for t in request_times if now - t < 60.0]
+            if len(request_times) >= 10:
+                sleep_time = 60.0 - (now - request_times[0]) + 0.5
+                print(f"AeroAPI: Approaching 10/min limit. Sleeping for {sleep_time:.1f}s...")
+                time.sleep(sleep_time)
+                
+            request_times.append(time.time())
+
+            # API details: AeroAPI v4 GET /flights/{ident}
+            url = f"https://aeroapi.flightaware.com/aeroapi/flights/{callsign}"
+            headers = {"x-apikey": api_key}
+            
+            response = requests.get(url, headers=headers, timeout=5)
+            
+            if response.status_code == 200:
+                data = response.json()
+                flights = data.get("flights", [])
+                
+                route_found = False
+                for f in flights:
+                    origin_obj = f.get("origin") or {}
+                    dest_obj = f.get("destination") or {}
+                    
+                    origin = origin_obj.get("code_icao")
+                    dest = dest_obj.get("code_icao")
+                    
+                    if origin and dest:
+                        ROUTES_DB[callsign] = {"from": origin, "to": dest}
+                        
+                        try:
+                            with open(ROUTES_FILE, 'r') as file:
+                                current_routes = json.load(file)
+                        except (FileNotFoundError, json.JSONDecodeError):
+                            current_routes = {}
+                        
+                        current_routes[callsign] = {"from": origin, "to": dest}
+                        
+                        with open(ROUTES_FILE, 'w') as file:
+                            json.dump(current_routes, file, indent=4)
+                        
+                        print(f"AeroAPI: Cached new route for {callsign} ({origin} -> {dest})")
+                        route_found = True
+                        break
+                
+                if not route_found:
+                    ROUTES_DB[callsign] = {"from": "--", "to": "--"} # Prevent repeated lookups
+            else:
+                print(f"AeroAPI Error for {callsign}: {response.status_code} - {response.text}")
+                if response.status_code in [401, 403, 429]:
+                    print("AeroAPI: Rate limit or auth error encountered. Pausing for 60s.")
+                    time.sleep(60) # Back off heavily on auth or quota limits
+            
+            missing_routes_in_progress.discard(callsign)
+            
+            time.sleep(0.5) # Small buffer between requests
+            
+        except Exception as e:
+            print(f"AeroAPI Worker Error: {e}")
+            time.sleep(5)
+
+if os.environ.get('FLIGHTAWARE_API_KEY'):
+    threading.Thread(target=fetch_flightaware_route_worker, daemon=True).start()
+
+
 
 # 2. Setup SQLite for Persistent Tracking
 DB_PATH = 'seen_aircraft.db'
@@ -213,6 +337,24 @@ def get_aircraft_data():
             for ac in aircraft_list:
                 hex_code = ac.get('hex', '').lower()
                 
+                # Check for route matches based on callsign
+                flight_callsign = ac.get('flight', '').strip().upper()
+                if flight_callsign in ROUTES_DB:
+                    route_from = ROUTES_DB[flight_callsign].get('from')
+                    route_to = ROUTES_DB[flight_callsign].get('to')
+                    if route_from and route_to and route_from != "--":
+                        ac['route_from'] = route_from
+                        ac['route_to'] = route_to
+                        # Enrich with full airport names
+                        if route_from in AIRPORTS_DB:
+                            ac['route_from_name'] = AIRPORTS_DB[route_from].get('name', '')
+                        if route_to in AIRPORTS_DB:
+                            ac['route_to_name'] = AIRPORTS_DB[route_to].get('name', '')
+                elif flight_callsign and len(flight_callsign) >= 3 and flight_callsign.isalnum():
+                    if flight_callsign not in missing_routes_in_progress and os.environ.get('FLIGHTAWARE_API_KEY'):
+                        missing_routes_in_progress.add(flight_callsign)
+                        flightaware_queue.put(flight_callsign)
+
                 if hex_code in AIRCRAFT_DB:
                     db_info = AIRCRAFT_DB[hex_code]
                     

@@ -36,6 +36,13 @@
             font-weight: 600;
             text-transform: uppercase;
             font-size: 0.8rem;
+            cursor: pointer;
+            user-select: none;
+            transition: color 0.2s;
+        }
+
+        th:hover {
+            color: #fff;
         }
 
         tr:hover {
@@ -79,7 +86,8 @@
                 </thead>
                 <tbody>
                     {% for item in types %}
-                    <tr>
+                    {% set search_term = item.desc if item.desc else item.type %}
+                    <tr style="cursor: pointer;" data-wiki-query="{{ search_term | forceescape }}" onclick="window.open('https://en.wikipedia.org/w/index.php?search=' + encodeURIComponent(this.getAttribute('data-wiki-query')), '_blank')">
                         <td style="font-family: monospace; font-weight: bold;">{{ item.type }}</td>
                         <td>{{ item.desc }}</td>
                         <td>{{ item.count }}</td>
@@ -90,6 +98,48 @@
             </table>
         </div>
     </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const table = document.querySelector('table');
+            const headers = table.querySelectorAll('th');
+            const tbody = table.querySelector('tbody');
+
+            let sortCol = -1;
+            let sortAsc = true;
+
+            headers.forEach((header, index) => {
+                header.addEventListener('click', () => {
+                    sortAsc = (sortCol === index) ? !sortAsc : true;
+                    sortCol = index;
+
+                    headers.forEach(h => h.innerHTML = h.innerHTML.replace(/ ▲| ▼/g, ''));
+                    header.innerHTML += sortAsc ? ' ▲' : ' ▼';
+
+                    const rows = Array.from(tbody.querySelectorAll('tr'));
+                    
+                    rows.sort((a, b) => {
+                        let aText = a.children[index].textContent.trim();
+                        let bText = b.children[index].textContent.trim();
+
+                        if (index === 2) {
+                            let aNum = parseFloat(aText);
+                            let bNum = parseFloat(bText);
+                            if (!isNaN(aNum) && !isNaN(bNum)) {
+                                return sortAsc ? aNum - bNum : bNum - aNum;
+                            }
+                        }
+
+                        if (aText < bText) return sortAsc ? -1 : 1;
+                        if (aText > bText) return sortAsc ? 1 : -1;
+                        return 0;
+                    });
+
+                    tbody.append(...rows);
+                });
+            });
+        });
+    </script>
 </body>
 
 </html>
