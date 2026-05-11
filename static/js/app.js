@@ -426,7 +426,7 @@ function updateMilitaryListDisplay() {
 
 // Start polling
 fetchData();
-setInterval(fetchData, 5000);
+setInterval(fetchData, 1000);
 // Update display on fetch as well to catch new data/removals
-setInterval(updateCloseProximityDisplay, 5000);
-setInterval(updateMilitaryListDisplay, 5000);
+setInterval(updateCloseProximityDisplay, 1000);
+setInterval(updateMilitaryListDisplay, 1000);

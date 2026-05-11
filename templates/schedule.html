@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Flight Schedule - ADSB Monitor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        .schedule-container {
+            max-width: 95%;
+            margin: 40px auto;
+            padding: 0 20px;
+        }
+        
+        .time-block {
+            margin-bottom: 40px;
+            background: var(--card-bg);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            overflow: hidden;
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        .table-responsive {
+            width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .time-header {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 15px 20px;
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: var(--accent-color);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 15px 20px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            white-space: nowrap;
+        }
+
+        th {
+            font-weight: 500;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .flight-id {
+            font-weight: 600;
+            color: #fff;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+        
+        .flight-id:hover {
+            color: var(--accent-color);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-secondary);
+        }
+
+        .empty-state h2 {
+            color: #fff;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="nav-bar">
+        <a href="/" class="nav-button">Live ATM</a>
+        <a href="/map" class="nav-button">Live Map</a>
+        <a href="/unique_types" class="nav-button">Unique Aircraft</a>
+        <a href="/routes_board" class="nav-button">Live Routes</a>
+        <a href="/schedule" class="nav-button active">Flight Schedule</a>
+    </div>
+
+    <div class="schedule-container">
+        <h1 style="margin-bottom: 10px;">Predicted Flight Schedule</h1>
+        <p style="color: var(--text-secondary); margin-bottom: 30px;">
+            Commercial flights predicted to pass overhead based on historical tracking. Flights must be seen on multiple days to appear here.
+        </p>
+
+        {% if not schedule %}
+        <div class="time-block">
+            <div class="empty-state">
+                <h2>No Schedule Data Yet</h2>
+                <p>The system needs to track commercial flights for at least two days to build a reliable schedule.<br>Check back tomorrow!</p>
+            </div>
+        </div>
+        {% else %}
+            {% for block in schedule %}
+            <div class="time-block">
+                <div class="time-header">{{ block.bucket }}</div>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Flight</th>
+                                <th>Route</th>
+                                <th>Aircraft Type</th>
+                                <th>Time in Sky</th>
+                                <th>Reliability</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for flight in block.flights %}
+                            <tr>
+                                <td>
+                                    <span class="flight-id" 
+                                          title="Search Wikipedia" 
+                                          onclick="window.open('https://en.wikipedia.org/w/index.php?search={{ flight.type }}', '_blank')">
+                                        {{ flight.flight }}
+                                    </span>
+                                </td>
+                                <td>
+                                    {% if flight.route_from != '--' and flight.route_to != '--' %}
+                                        ✈ {{ flight.route_from }} &rarr; {{ flight.route_to }}
+                                    {% else %}
+                                        <span style="color: var(--text-secondary);">Unknown Route</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ flight.type }}</td>
+                                <td>~{{ flight.duration_mins }} mins</td>
+                                <td><span style="color: var(--text-secondary);">Seen {{ flight.days_seen }} days</span></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endfor %}
+        {% endif %}
+    </div>
+</body>
+</html>

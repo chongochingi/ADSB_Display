@@ -83,15 +83,27 @@ def fetch_flightaware_route_worker():
             if not callsign:
                 continue
                 
-            # Enforce 10 requests per rolling 60 seconds
             now = time.time()
-            request_times = [t for t in request_times if now - t < 60.0]
-            if len(request_times) >= 10:
-                sleep_time = 60.0 - (now - request_times[0]) + 0.5
-                print(f"AeroAPI: Approaching 10/min limit. Sleeping for {sleep_time:.1f}s...")
+            
+            # Clean up old timestamps beyond 24 hours
+            request_times = [t for t in request_times if now - t < 86400.0]
+            
+            # Check Daily Limit (max 600 requests per 24 hours to stay strictly under 1500 limit)
+            if len(request_times) >= 600:
+                sleep_time = 86400.0 - (now - request_times[0]) + 1.0
+                print(f"AeroAPI: Daily budget limit reached. Sleeping for {sleep_time/3600:.1f} hours...")
                 time.sleep(sleep_time)
+                continue
                 
-            request_times.append(time.time())
+            # Check Hourly Limit (max 60 requests per hour to spread it out)
+            hourly_times = [t for t in request_times if now - t < 3600.0]
+            if len(hourly_times) >= 60:
+                sleep_time = 3600.0 - (now - hourly_times[0]) + 1.0
+                print(f"AeroAPI: Hourly limit reached. Sleeping for {sleep_time/60:.1f} minutes...")
+                time.sleep(sleep_time)
+                continue
+                
+            request_times.append(now)
 
             # API details: AeroAPI v4 GET /flights/{ident}
             url = f"https://aeroapi.flightaware.com/aeroapi/flights/{callsign}"
@@ -165,6 +177,19 @@ def init_db():
                 flight TEXT,
                 type TEXT,
                 desc TEXT
+            )
+        ''')
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS daily_flights (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                flight TEXT,
+                route_from TEXT,
+                route_to TEXT,
+                type TEXT,
+                date TEXT,
+                first_seen REAL,
+                last_seen REAL,
+                UNIQUE(flight, date)
             )
         ''')
         conn.commit()
@@ -261,6 +286,26 @@ def track_sightings(aircraft_list):
                     INSERT INTO seen_aircraft (hex, first_seen, last_seen, flight, type, desc)
                     VALUES (?, ?, ?, ?, ?, ?)
                 ''', (hex_code, now, now, flight, type_code, desc))
+                
+            # DAILY SCHEDULE TRACKING
+            flight_upper = flight.upper()
+            if flight_upper and len(flight_upper) >= 3 and flight_upper.isalnum():
+                is_military = ac.get('mil') or (ac.get('dbFlags', 0) & 1)
+                is_ga_tail = flight_upper.startswith('N') and len(flight_upper) >= 2 and flight_upper[1].isdigit()
+                
+                if not is_military and not is_ga_tail:
+                    today_date = time.strftime('%Y-%m-%d', time.localtime(now))
+                    route_from = ac.get('route_from', '')
+                    route_to = ac.get('route_to', '')
+                    
+                    c.execute('''
+                        INSERT INTO daily_flights (flight, route_from, route_to, type, date, first_seen, last_seen)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(flight, date) DO UPDATE SET
+                        last_seen = excluded.last_seen,
+                        route_from = CASE WHEN excluded.route_from != '' THEN excluded.route_from ELSE route_from END,
+                        route_to = CASE WHEN excluded.route_to != '' THEN excluded.route_to ELSE route_to END
+                    ''', (flight_upper, route_from, route_to, type_code, today_date, now, now))
         
         conn.commit()
         conn.close()
@@ -337,24 +382,6 @@ def get_aircraft_data():
             for ac in aircraft_list:
                 hex_code = ac.get('hex', '').lower()
                 
-                # Check for route matches based on callsign
-                flight_callsign = ac.get('flight', '').strip().upper()
-                if flight_callsign in ROUTES_DB:
-                    route_from = ROUTES_DB[flight_callsign].get('from')
-                    route_to = ROUTES_DB[flight_callsign].get('to')
-                    if route_from and route_to and route_from != "--":
-                        ac['route_from'] = route_from
-                        ac['route_to'] = route_to
-                        # Enrich with full airport names
-                        if route_from in AIRPORTS_DB:
-                            ac['route_from_name'] = AIRPORTS_DB[route_from].get('name', '')
-                        if route_to in AIRPORTS_DB:
-                            ac['route_to_name'] = AIRPORTS_DB[route_to].get('name', '')
-                elif flight_callsign and len(flight_callsign) >= 3 and flight_callsign.isalnum():
-                    if flight_callsign not in missing_routes_in_progress and os.environ.get('FLIGHTAWARE_API_KEY'):
-                        missing_routes_in_progress.add(flight_callsign)
-                        flightaware_queue.put(flight_callsign)
-
                 if hex_code in AIRCRAFT_DB:
                     db_info = AIRCRAFT_DB[hex_code]
                     
@@ -395,6 +422,32 @@ def get_aircraft_data():
                     except Exception:
                         pass # Don't crash on string manipulation errors
 
+                # Check for route matches based on callsign
+                flight_callsign = ac.get('flight', '').strip().upper()
+                if flight_callsign in ROUTES_DB:
+                    route_from = ROUTES_DB[flight_callsign].get('from')
+                    route_to = ROUTES_DB[flight_callsign].get('to')
+                    if route_from and route_to and route_from != "--":
+                        ac['route_from'] = route_from
+                        ac['route_to'] = route_to
+                        # Enrich with full airport names
+                        if route_from in AIRPORTS_DB:
+                            ac['route_from_name'] = AIRPORTS_DB[route_from].get('name', '')
+                            ac['route_from_lat'] = AIRPORTS_DB[route_from].get('lat')
+                            ac['route_from_lon'] = AIRPORTS_DB[route_from].get('lon')
+                        if route_to in AIRPORTS_DB:
+                            ac['route_to_name'] = AIRPORTS_DB[route_to].get('name', '')
+                            ac['route_to_lat'] = AIRPORTS_DB[route_to].get('lat')
+                            ac['route_to_lon'] = AIRPORTS_DB[route_to].get('lon')
+                elif flight_callsign and len(flight_callsign) >= 3 and flight_callsign.isalnum():
+                    is_military = ac.get('mil') or (ac.get('dbFlags', 0) & 1)
+                    is_ga_tail = flight_callsign.startswith('N') and len(flight_callsign) >= 2 and flight_callsign[1].isdigit()
+                    
+                    if not is_military and not is_ga_tail:
+                        if flight_callsign not in missing_routes_in_progress and os.environ.get('FLIGHTAWARE_API_KEY'):
+                            missing_routes_in_progress.add(flight_callsign)
+                            flightaware_queue.put(flight_callsign)
+
                 # Check for New Type
                 type_code = ac.get('t', '')
                 if type_code and type_code not in SEEN_TYPES:
@@ -422,3 +475,103 @@ def get_aircraft_data():
             return data
     except FileNotFoundError:
         return None
+
+def get_flight_schedule():
+    """
+    Returns a schedule of predicted commercial flights based on historical data.
+    Groups flights by their average time seen, rounded to 15-minute buckets.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        
+        c.execute('''
+            SELECT flight, MAX(route_from) as route_from, MAX(route_to) as route_to, MAX(type) as type,
+                   COUNT(DISTINCT date) as days_seen,
+                   GROUP_CONCAT(first_seen) as first_seen_list,
+                   GROUP_CONCAT(last_seen) as last_seen_list
+            FROM daily_flights
+            GROUP BY flight
+            HAVING days_seen >= 2
+        ''')
+        rows = c.fetchall()
+        conn.close()
+        
+        schedule = []
+        import statistics
+        
+        for r in rows:
+            flight = r[0]
+            route_from = r[1]
+            route_to = r[2]
+            type_code = r[3]
+            days_seen = r[4]
+            first_seen_str = r[5]
+            last_seen_str = r[6]
+            
+            first_seen_times = [float(x) for x in first_seen_str.split(',')]
+            last_seen_times = [float(x) for x in last_seen_str.split(',')]
+            
+            def get_tod_seconds(ts):
+                lt = time.localtime(ts)
+                return lt.tm_hour * 3600 + lt.tm_min * 60 + lt.tm_sec
+            
+            first_tods = [get_tod_seconds(ts) for ts in first_seen_times]
+            last_tods = [get_tod_seconds(ts) for ts in last_seen_times]
+            
+            avg_first_tod = sum(first_tods) / len(first_tods)
+            avg_last_tod = sum(last_tods) / len(last_tods)
+            
+            if len(first_tods) >= 2:
+                std_dev = statistics.stdev(first_tods)
+                if std_dev > 7200: # Exclude if variance > 2 hours
+                    continue
+            
+            # Round down to nearest 15 mins
+            bucket_hour = int(avg_first_tod // 3600)
+            bucket_minute = int(((avg_first_tod % 3600) // 900) * 15)
+            bucket_sort_val = bucket_hour + (bucket_minute / 60.0)
+            
+            bucket_time_str = f"{bucket_hour:02d}:{bucket_minute:02d}"
+            bucket_datetime = time.strptime(bucket_time_str, "%H:%M")
+            bucket_display = time.strftime("%I:%M %p", bucket_datetime)
+            
+            avg_duration_sec = avg_last_tod - avg_first_tod
+            if avg_duration_sec < 0: avg_duration_sec += 86400
+            duration_mins = max(1, int(avg_duration_sec / 60))
+            
+            schedule.append({
+                'flight': flight,
+                'route_from': route_from if route_from else '--',
+                'route_to': route_to if route_to else '--',
+                'type': type_code,
+                'bucket_sort': bucket_sort_val,
+                'bucket_display': bucket_display,
+                'duration_mins': duration_mins,
+                'days_seen': days_seen
+            })
+            
+        schedule.sort(key=lambda x: x['bucket_sort'])
+        
+        # Group by 15-min bucket
+        # Returns a list of dicts: [{'bucket': '08:15 AM', 'flights': [...]}]
+        grouped_list = []
+        current_bucket = None
+        current_flights = []
+        
+        for s in schedule:
+            if s['bucket_display'] != current_bucket:
+                if current_bucket is not None:
+                    grouped_list.append({'bucket': current_bucket, 'flights': current_flights})
+                current_bucket = s['bucket_display']
+                current_flights = [s]
+            else:
+                current_flights.append(s)
+                
+        if current_bucket is not None:
+            grouped_list.append({'bucket': current_bucket, 'flights': current_flights})
+            
+        return grouped_list
+    except Exception as e:
+        print(f"Error getting schedule: {e}")
+        return []

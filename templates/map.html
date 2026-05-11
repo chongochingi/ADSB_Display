@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Live Map - ADSB Monitor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+    
+    <style>
+        body, html {
+            height: 100%;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .map-container {
+            flex: 1;
+            width: 100%;
+            position: relative;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+            background-color: #0f172a;
+        }
+
+        .nav-bar {
+            margin-bottom: 0;
+            padding: 20px;
+            background: rgba(15, 23, 42, 0.9);
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            z-index: 1000;
+        }
+
+        /* Plane Marker */
+        .plane-marker {
+            background-color: #3b82f6;
+            border-radius: 50%;
+            box-shadow: 0 0 10px #3b82f6, 0 0 20px #3b82f6;
+            border: 2px solid #fff;
+        }
+
+        .plane-military {
+            background-color: #ef4444;
+            box-shadow: 0 0 10px #ef4444;
+        }
+
+        .plane-ou {
+            background-color: #dc2626; /* Crimson red */
+            box-shadow: 0 0 10px #dc2626;
+        }
+
+        /* Leaflet Dark Theme Overrides for Popups */
+        .leaflet-popup-content-wrapper {
+            background: var(--card-bg);
+            color: #fff;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .leaflet-popup-tip {
+            background: var(--card-bg);
+        }
+        .popup-title {
+            font-weight: 600;
+            font-size: 1.1rem;
+            margin-bottom: 5px;
+            color: var(--accent-color);
+        }
+        .popup-detail {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-bottom: 2px;
+        }
+    </style>
+</head>
+<body>
+    <div class="nav-bar">
+        <a href="/" class="nav-button">Live ATM</a>
+        <a href="/map" class="nav-button active">Live Map</a>
+        <a href="/unique_types" class="nav-button">Unique Aircraft</a>
+        <a href="/routes_board" class="nav-button">Live Routes</a>
+        <a href="/schedule" class="nav-button">Flight Schedule</a>
+    </div>
+
+    <div class="map-container">
+        <div id="map"></div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    
+    <script>
+        // Initialize Map centered on Oklahoma City
+        const map = L.map('map', {
+            zoomControl: false // Move zoom to bottom right
+        }).setView([35.4676, -97.5164], 8);
+        
+        L.control.zoom({
+            position: 'bottomright'
+        }).addTo(map);
+
+        // Add CartoDB Dark Matter tiles
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+            subdomains: 'abcd',
+            maxZoom: 20
+        }).addTo(map);
+
+        // Layer group to easily clear old aircraft on every tick
+        const aircraftLayer = L.layerGroup().addTo(map);
+
+        const API_URL = '/api/data';
+
+        async function updateMap() {
+            try {
+                const response = await fetch(API_URL);
+                const data = await response.json();
+
+                if (data.aircraft) {
+                    // Clear old markers and lines
+                    aircraftLayer.clearLayers();
+
+                    data.aircraft.forEach(ac => {
+                        if (ac.lat && ac.lon) {
+                            // 1. Draw Route Line (Origin -> Plane -> Destination)
+                            if (ac.route_from_lat && ac.route_to_lat) {
+                                const latlngs = [
+                                    [ac.route_from_lat, ac.route_from_lon],
+                                    [ac.lat, ac.lon],
+                                    [ac.route_to_lat, ac.route_to_lon]
+                                ];
+                                
+                                L.polyline(latlngs, {
+                                    color: '#64748b',
+                                    weight: 2,
+                                    dashArray: '5, 10',
+                                    opacity: 0.5
+                                }).addTo(aircraftLayer);
+                                
+                                // Origin Dot
+                                L.circleMarker([ac.route_from_lat, ac.route_from_lon], {
+                                    radius: 3, color: '#22c55e', fillColor: '#22c55e', fillOpacity: 1
+                                }).addTo(aircraftLayer);
+                                
+                                // Destination Dot
+                                L.circleMarker([ac.route_to_lat, ac.route_to_lon], {
+                                    radius: 3, color: '#ef4444', fillColor: '#ef4444', fillOpacity: 1
+                                }).addTo(aircraftLayer);
+                            }
+
+                            // 2. Determine plane styling
+                            let markerClass = 'plane-marker';
+                            if (ac.mil) markerClass += ' plane-military';
+                            if (ac.flight && ac.flight.includes('OU')) markerClass += ' plane-ou';
+
+                            const customIcon = L.divIcon({
+                                className: markerClass,
+                                iconSize: [12, 12],
+                                iconAnchor: [6, 6]
+                            });
+
+                            // 3. Create Marker
+                            const marker = L.marker([ac.lat, ac.lon], { icon: customIcon }).addTo(aircraftLayer);
+
+                            // 4. Create Popup
+                            const flight = ac.flight ? ac.flight.trim() : 'Unknown';
+                            const type = ac.t || ac.desc || 'Unknown Aircraft';
+                            const alt = ac.alt_baro ? ac.alt_baro + ' ft' : 'Unknown Alt';
+                            const speed = ac.gs ? ac.gs + ' kts' : 'Unknown Speed';
+                            
+                            let routeHtml = '';
+                            if (ac.route_from && ac.route_to) {
+                                routeHtml = `<div class="popup-detail">✈ ${ac.route_from} &rarr; ${ac.route_to}</div>`;
+                            }
+
+                            const popupHtml = `
+                                <div class="popup-title">${flight}</div>
+                                <div class="popup-detail">${type}</div>
+                                ${routeHtml}
+                                <div class="popup-detail" style="margin-top:5px;">Alt: ${alt} | Spd: ${speed}</div>
+                            `;
+                            
+                            marker.bindPopup(popupHtml);
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error('Error fetching map data:', error);
+            }
+        }
+
+        // Fetch immediately, then every 1 second
+        updateMap();
+        setInterval(updateMap, 1000);
+    </script>
+</body>
+</html>

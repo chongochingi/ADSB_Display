@@ -30,10 +30,10 @@ body {
     font-family: var(--font-family);
     margin: 0;
     padding: 20px;
-    height: 100vh;
+    min-height: 100vh;
     box-sizing: border-box;
-    overflow: hidden;
-    /* Prevent scrolling for dashboard feel */
+    overflow-x: hidden;
+    overflow-y: auto;
 }
 
 .container {
@@ -140,6 +140,37 @@ h1 {
     transition: transform 0.2s, box-shadow 0.2s;
     animation: fadeIn 0.3s ease-out;
     cursor: pointer;
+}
+
+.nav-bar {
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+    margin-bottom: 20px;
+    padding: 0 20px;
+    margin-top: 20px;
+}
+
+.nav-button {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-secondary);
+    text-decoration: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-weight: 500;
+    transition: all 0.2s;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.nav-button:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+
+.nav-button.active {
+    background: var(--accent-color);
+    color: #000;
+    border-color: var(--accent-color);
 }
 
 .clickable-text {
@@ -318,6 +349,15 @@ h1 {
     color: var(--text-primary);
     font-size: 0.85rem;
     line-height: 1.4;
+}
+
+.time-block {
+    background: var(--card-bg);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    overflow: hidden;
+    overflow-x: auto;
+    animation: fadeIn 0.3s ease-out;
 }
 
 .military-tag {

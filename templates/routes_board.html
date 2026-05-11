@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Live Routes - ADSB Monitor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        .schedule-container {
+            max-width: 95%;
+            margin: 40px auto;
+            padding: 0 20px;
+        }
+        
+        .time-block {
+            background: var(--card-bg);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            overflow: hidden;
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        .table-responsive {
+            width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 15px 20px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            white-space: nowrap;
+        }
+
+        th {
+            font-weight: 500;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .flight-id {
+            font-weight: 600;
+            color: #fff;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+        
+        .flight-id:hover {
+            color: var(--accent-color);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-secondary);
+            display: none;
+        }
+
+        .empty-state h2 {
+            color: #fff;
+            margin-bottom: 10px;
+        }
+
+        .live-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background-color: #2ecc71;
+            border-radius: 50%;
+            margin-right: 8px;
+            box-shadow: 0 0 8px #2ecc71;
+            animation: blink 2s infinite;
+        }
+
+        @keyframes blink {
+            0% { opacity: 1; }
+            50% { opacity: 0.4; }
+            100% { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="nav-bar">
+        <a href="/" class="nav-button">Live ATM</a>
+        <a href="/map" class="nav-button">Live Map</a>
+        <a href="/unique_types" class="nav-button">Unique Aircraft</a>
+        <a href="/routes_board" class="nav-button active">Live Routes</a>
+        <a href="/schedule" class="nav-button">Flight Schedule</a>
+    </div>
+
+    <div class="schedule-container">
+        <h1 style="margin-bottom: 10px;">
+            <span class="live-indicator"></span>Active Route Board
+        </h1>
+        <p style="color: var(--text-secondary); margin-bottom: 30px;">
+            Real-time departures and destinations for commercial flights currently passing overhead.
+        </p>
+
+        <div class="time-block">
+            <div class="empty-state" id="empty-state">
+                <h2>No Active Routes</h2>
+                <p>There are no commercial flights with known routes currently in your airspace.<br>Wait for more traffic to arrive.</p>
+            </div>
+            
+            <div class="table-responsive">
+                <table id="routes-table">
+                    <thead>
+                        <tr>
+                            <th>Flight</th>
+                            <th>Origin</th>
+                            <th>Destination</th>
+                            <th>Distance</th>
+                            <th>Aircraft</th>
+                        </tr>
+                    </thead>
+                    <tbody id="routes-body">
+                        <!-- Javascript will populate this -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = '/api/data';
+
+        async function fetchRoutes() {
+            try {
+                const response = await fetch(API_URL);
+                const data = await response.json();
+
+                if (data.aircraft) {
+                    renderRoutes(data.aircraft);
+                }
+            } catch (error) {
+                console.error('Error fetching data:', error);
+            }
+        }
+
+        function renderRoutes(aircraftData) {
+            const tbody = document.getElementById('routes-body');
+            const emptyState = document.getElementById('empty-state');
+            const table = document.getElementById('routes-table');
+
+            // Filter for aircraft that have a known route (excluding local generic -- routes)
+            const routeAircraft = aircraftData.filter(ac => {
+                return ac.route_from && ac.route_to && ac.route_from !== '--' && ac.route_to !== '--';
+            });
+
+            // Sort by closest distance
+            routeAircraft.sort((a, b) => (a.r_dst || 9999) - (b.r_dst || 9999));
+
+            if (routeAircraft.length === 0) {
+                emptyState.style.display = 'block';
+                table.style.display = 'none';
+                return;
+            }
+
+            emptyState.style.display = 'none';
+            table.style.display = 'table';
+
+            let html = '';
+            routeAircraft.forEach(ac => {
+                const flight = ac.flight ? ac.flight.trim() : 'Unknown';
+                const type = ac.t || ac.desc || 'Unknown';
+                const dist = ac.r_dst ? ac.r_dst.toFixed(1) + ' nm' : '--';
+                
+                // Format airport names to be code-first and truncated
+                function formatAirport(code, name) {
+                    if (!name) return code;
+                    let shortName = name;
+                    if (shortName.length > 25) {
+                        shortName = shortName.substring(0, 22) + '...';
+                    }
+                    return `<strong style="color: var(--accent-color);">${code}</strong> - <span title="${name}">${shortName}</span>`;
+                }
+
+                let fromDisplay = formatAirport(ac.route_from, ac.route_from_name);
+                let toDisplay = formatAirport(ac.route_to, ac.route_to_name);
+
+                // Wikipedia search link for the aircraft type
+                const searchLink = `https://en.wikipedia.org/w/index.php?search=${encodeURIComponent(type)}`;
+
+                html += `
+                    <tr>
+                        <td><span class="flight-id" onclick="window.open('${searchLink}', '_blank')">${flight}</span></td>
+                        <td>${fromDisplay}</td>
+                        <td>${toDisplay}</td>
+                        <td>${dist}</td>
+                        <td>${type}</td>
+                    </tr>
+                `;
+            });
+
+            tbody.innerHTML = html;
+        }
+
+        // Fetch immediately, then every 3 seconds
+        fetchRoutes();
+        setInterval(fetchRoutes, 3000);
+    </script>
+</body>
+</html>
