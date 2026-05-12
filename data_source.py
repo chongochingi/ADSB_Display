@@ -65,10 +65,22 @@ if os.path.exists(AIRPORTS_FILE):
     except Exception as e:
         print(f"Error loading airports database: {e}")
 
-# 1.6 FlightAware AeroAPI Integration
+# 1.6 FlightAware AeroAPI Integration (opt-in only — default off)
 flightaware_queue = queue.Queue()
 missing_routes_in_progress = set()
 request_times = []
+
+
+def flightaware_api_enabled() -> bool:
+    """
+    AeroAPI calls are disabled unless explicitly enabled (saves monthly quota when unset).
+    To turn on later: set FLIGHTAWARE_ENABLED=1 (or true/yes/on) and FLIGHTAWARE_API_KEY.
+    """
+    flag = os.environ.get('FLIGHTAWARE_ENABLED', '').strip().lower()
+    if flag not in ('1', 'true', 'yes', 'on'):
+        return False
+    return bool(os.environ.get('FLIGHTAWARE_API_KEY'))
+
 
 def fetch_flightaware_route_worker():
     global request_times
@@ -124,7 +136,8 @@ def fetch_flightaware_route_worker():
                     dest = dest_obj.get("code_icao")
                     
                     if origin and dest:
-                        ROUTES_DB[callsign] = {"from": origin, "to": dest}
+                        today = datetime.date.today().isoformat()
+                        ROUTES_DB[callsign] = {"from": origin, "to": dest, "updated": today}
                         
                         try:
                             with open(ROUTES_FILE, 'r') as file:
@@ -132,7 +145,7 @@ def fetch_flightaware_route_worker():
                         except (FileNotFoundError, json.JSONDecodeError):
                             current_routes = {}
                         
-                        current_routes[callsign] = {"from": origin, "to": dest}
+                        current_routes[callsign] = {"from": origin, "to": dest, "updated": today}
                         
                         with open(ROUTES_FILE, 'w') as file:
                             json.dump(current_routes, file, indent=4)
@@ -142,7 +155,8 @@ def fetch_flightaware_route_worker():
                         break
                 
                 if not route_found:
-                    ROUTES_DB[callsign] = {"from": "--", "to": "--"} # Prevent repeated lookups
+                    today = datetime.date.today().isoformat()
+                    ROUTES_DB[callsign] = {"from": "--", "to": "--", "updated": today} # Prevent repeated lookups
             else:
                 print(f"AeroAPI Error for {callsign}: {response.status_code} - {response.text}")
                 if response.status_code in [401, 403, 429]:
@@ -157,7 +171,8 @@ def fetch_flightaware_route_worker():
             print(f"AeroAPI Worker Error: {e}")
             time.sleep(5)
 
-if os.environ.get('FLIGHTAWARE_API_KEY'):
+
+if flightaware_api_enabled():
     threading.Thread(target=fetch_flightaware_route_worker, daemon=True).start()
 
 
@@ -444,7 +459,10 @@ def get_aircraft_data():
                     is_ga_tail = flight_callsign.startswith('N') and len(flight_callsign) >= 2 and flight_callsign[1].isdigit()
                     
                     if not is_military and not is_ga_tail:
-                        if flight_callsign not in missing_routes_in_progress and os.environ.get('FLIGHTAWARE_API_KEY'):
+                        if (
+                            flight_callsign not in missing_routes_in_progress
+                            and flightaware_api_enabled()
+                        ):
                             missing_routes_in_progress.add(flight_callsign)
                             flightaware_queue.put(flight_callsign)
 
@@ -540,10 +558,17 @@ def get_flight_schedule():
             if avg_duration_sec < 0: avg_duration_sec += 86400
             duration_mins = max(1, int(avg_duration_sec / 60))
             
+            # Prioritize the manual routes.json database
+            display_from = route_from
+            display_to = route_to
+            if flight in ROUTES_DB:
+                display_from = ROUTES_DB[flight].get('from', route_from)
+                display_to = ROUTES_DB[flight].get('to', route_to)
+
             schedule.append({
                 'flight': flight,
-                'route_from': route_from if route_from else '--',
-                'route_to': route_to if route_to else '--',
+                'route_from': display_from if display_from else '--',
+                'route_to': display_to if display_to else '--',
                 'type': type_code,
                 'bucket_sort': bucket_sort_val,
                 'bucket_display': bucket_display,
